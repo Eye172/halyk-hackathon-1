@@ -10,3 +10,6 @@ submission.json
 tmp/
 agentic-bank-public/
 agentic-bank-hidden/
+
+# Full calibration answers are supplied locally, not distributed.
+/halyk_agent/config/public_fact_pack.json

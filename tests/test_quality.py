@@ -330,7 +330,7 @@ class OperationalGateTests(unittest.TestCase):
         self.assertEqual(access["status"], "fail")
         self.assertFalse(report["hard_gates_passed"])
 
-    @unittest.skipUnless(DATA.is_dir(), "challenge public dataset is not distributed with the repository")
+    @unittest.skipUnless(DATA.is_dir() and PUBLIC_FACT_PACK.is_file(), "full challenge data and calibration pack are local-only")
     def test_submission_rejects_negative_actual(self) -> None:
         template = read_json(DATA / "submission_template.json")
         ledger = Ledger.from_csv(DATA / "master_ledger_2025.csv")

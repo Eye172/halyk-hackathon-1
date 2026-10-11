@@ -5,3 +5,6 @@ agentic-bank-hidden/** -text
 artifacts/** -text
 tmp/** -text
 submission*.json -text
+
+# Keep sample fingerprints stable on Windows and Linux.
+examples/covenant-sample/*.csv text eol=lf

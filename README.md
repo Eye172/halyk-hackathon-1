@@ -77,7 +77,26 @@ score внутри интерфейса явно помечен как кали�
 Сценарий 90-секундной защиты и боевой таймлайн приватного окна находятся в
 [`WINNING_STRATEGY.md`](WINNING_STRATEGY.md).
 
-## Быстрый публичный запуск
+## Небольшой пример без API-ключа
+
+В [examples/covenant-sample](examples/covenant-sample/README.md) доступны два PDF,
+четыре транзакции и одна проверка ковенанта. Полные датасеты и ответы не распространяются.
+
+```powershell
+python -m pip install -r requirements.txt
+python tools/run_sample.py
+```
+
+Это воспроизведение документированного плана через существующий Decimal-движок,
+а не новый LLM-прогон. Скрипт проверяет PDF, источники, fingerprint, схему и результат.
+
+## Полный контрольный запуск на локальном датасете
+
+Следующие команды требуют отдельно предоставленного полного `agentic-bank-public/`
+и локального `halyk_agent/config/public_fact_pack.json`. Оба исключены из Git.
+Без fact pack режим `auto` переходит к LLM и требует ключ API; для проверки
+известного benchmark используйте явно `--mode public`.
+
 
 Из корня проекта:
 
@@ -85,6 +104,7 @@ score внутри интерфейса явно помечен как кали�
 python -m pip install -r requirements.txt
 python run_agent.py run `
   --data agentic-bank-public `
+  --mode public `
   --output submission.json `
   --team "НАЗВАНИЕ_КОМАНДЫ" `
   --contact-email "EMAIL"
@@ -271,8 +291,9 @@ python -m compileall -q halyk_agent tests run_agent.py score_public.py validate_
 ```
 
 GitHub Actions выполняет unit/contract tests и compile check на Python 3.11/3.12 под Windows и
-Linux. В этой приватной копии сохранены оба датасета соревнования; зависящие от них benchmark-тесты в чистом
-клоне помечаются `skipped`, а при наличии локальной папки автоматически включаются и проверяют `36/36`.
+Linux. Полные датасеты не входят в репозиторий. Зависящие от них benchmark-тесты
+помечаются `skipped` без локальных данных; тест опубликованного примера работает
+в чистом клоне. Для полного benchmark дополнительно нужен локальный fact pack.
 
 ## Структура проекта
 
@@ -300,19 +321,16 @@ Codex и другие готовые агенты допустимы для ра
 actual или evidence после запуска. Допустим технический контроль процесса, повторный запуск
 после исправления кода и проверка валидатора.
 
-## Архив данных и результатов
+## Границы опубликованных данных
 
-Эта приватная копия сохраняет локальные материалы проекта: публичный датасет
-`agentic-bank-public/` (200 PDF), скрытый датасет `agentic-bank-hidden/` (302 PDF),
-реестры транзакций, шаблоны, описания кейса, `submission.json`,
-`submission_private.json`, отчёты `artifacts/` и рабочие материалы `tmp/`.
-Манифест файлов с SHA-256 находится в `docs/migration/file-manifest.json`.
+Полные наборы `agentic-bank-public/` и `agentic-bank-hidden/`, ответы, отчёты,
+OCR-кэши, `tmp/` и полный calibration fact pack удалены из всех веток и истории
+этой копии. Локальная резервная копия исходного архива сохранена отдельно.
+В Git оставлен только [один демонстрационный пример](examples/covenant-sample/README.md).
 
-Результаты сохранены в исходном виде. В публичном submission остаются
-`CHANGE_ME_TEAM` и `CHANGE_ME_EMAIL`; сохранённый quality report сообщает
-`hard_gates_passed = false`. Архив результатов сам по себе не подтверждает
-готовность к повторной сдаче или private score. Для новой сдачи задайте метаданные
-команды, выполните новый запуск и проверьте validator и quality report.
+`docs/migration/` описывает первоначальный перенос до очистки и не является
+манифестом текущего дерева. [Запись об очистке](docs/REPOSITORY_HYGIENE.md)
+объясняет границы изменений и работу со старыми клонами.
 
 ## Команда и происхождение репозитория
 
@@ -323,15 +341,16 @@ actual или evidence после запуска. Допустим технич�
 | Шахназар Ахмер / Shakhnazar Akhmer | [Eye172](https://github.com/Eye172) | Full-stack Engineer · Software Engineer · AI Engineer · ML Engineer |
 | Нурхан Аймукатов / Nurkhan Aimukatov | [pip00sya](https://github.com/pip00sya) | Full-stack Engineer · Software Engineer · AI Engineer |
 
-Участники работают в равных инженерных ролях. Исходный репозиторий:
+Исходный репозиторий:
 [pip00sya/Halyk-ai-agent](https://github.com/pip00sya/Halyk-ai-agent). Копия с полной историей и
 материалами: [Eye172/halyk-hackathon-1](https://github.com/Eye172/halyk-hackathon-1).
 
 ## Migration record
 
 This copy republishes the complete imported Git history under the Eye172 account,
-at Shakhnazar Akhmer's request. File trees, commit dates, messages and parent
-relationships are preserved. Original authorship metadata, source references and
+at Shakhnazar Akhmer's request. After the 2026-10-12 cleanup, commit dates, messages, authors and parent
+relationships remain preserved. Removed file paths and resulting commit IDs differ;
+see [the cleanup record](docs/REPOSITORY_HYGIENE.md). Original authorship metadata, source references and
 the original-to-republished commit mapping are in
 [docs/migration/history.json](docs/migration/history.json).
 Source repositories and their existing development history remain preserved.
