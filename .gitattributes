@@ -1,0 +1,7 @@
+# Keep source text portable and archived data byte-for-byte.
+* text=auto eol=lf
+agentic-bank-public/** -text
+agentic-bank-hidden/** -text
+artifacts/** -text
+tmp/** -text
+submission*.json -text

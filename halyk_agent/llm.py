@@ -20,6 +20,11 @@ from .plans import parse_plan, validate_plan
 
 
 TXN_REFERENCE_RE = re.compile(r"\bTXN-[A-Za-z0-9]+-\d+\b", re.IGNORECASE)
+MAX_SCENARIO_DOCUMENTS = 12
+MAX_EVIDENCE_CHARS = 180_000
+DEFAULT_MODEL = "gpt-5.6-terra"
+DEFAULT_REASONING_EFFORT = "medium"
+PLANNER_CONTRACT_VERSION = "2"
 
 
 class LLMError(RuntimeError):
@@ -58,24 +63,46 @@ def find_pdftoppm() -> str | None:
 def plan_response_schema(clauses: list[str]) -> dict[str, Any]:
     """Strict Responses API schema for a complete scenario plan."""
     nullable_string = {"type": ["string", "null"]}
+    # A discriminated nested union prevents the model from filling irrelevant nullable
+    # fields. In particular, a literal can no longer be emitted with value/source=null,
+    # which was the root cause of expensive post-response validation failures.
     fact_item = {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "name": {"type": "string"},
-            "type": {"type": "string", "enum": ["literal", "txn", "expression"]},
-            "value": nullable_string,
-            "source": nullable_string,
-            "note": nullable_string,
-            "ids": {"type": "array", "items": {"type": "string"}},
-            "absolute": {"type": ["boolean", "null"]},
-            "fallback": nullable_string,
-            "expression": nullable_string,
-        },
-        "required": [
-            "name", "type", "value", "source", "note", "ids",
-            "absolute", "fallback", "expression",
-        ],
+        "anyOf": [
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "name": {"type": "string"},
+                    "type": {"type": "string", "enum": ["literal"]},
+                    "value": {"type": "string"},
+                    "source": {"type": "string"},
+                    "note": nullable_string,
+                },
+                "required": ["name", "type", "value", "source", "note"],
+            },
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "name": {"type": "string"},
+                    "type": {"type": "string", "enum": ["txn"]},
+                    "ids": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                    "absolute": {"type": "boolean"},
+                    "fallback": nullable_string,
+                },
+                "required": ["name", "type", "ids", "absolute", "fallback"],
+            },
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "name": {"type": "string"},
+                    "type": {"type": "string", "enum": ["expression"]},
+                    "expression": {"type": "string"},
+                },
+                "required": ["name", "type", "expression"],
+            },
+        ]
     }
     override = {
         "type": "object",
@@ -179,17 +206,22 @@ class OpenAIResponsesClient:
 
     def __init__(
         self,
-        model: str = "gpt-5.6",
-        reasoning_effort: str = "high",
+        model: str = DEFAULT_MODEL,
+        reasoning_effort: str = DEFAULT_REASONING_EFFORT,
         api_key: str | None = None,
         base_url: str | None = None,
         timeout: int = 300,
+        max_output_tokens: int | None = None,
     ) -> None:
         self.model = model
         self.reasoning_effort = reasoning_effort
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         self.base_url = (base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
         self.timeout = timeout
+        configured_limit = max_output_tokens or int(os.environ.get("OPENAI_MAX_OUTPUT_TOKENS", "20000"))
+        if configured_limit < 1024:
+            raise LLMError("OPENAI_MAX_OUTPUT_TOKENS must be at least 1024")
+        self.max_output_tokens = configured_limit
         if not self.api_key:
             raise LLMError("OPENAI_API_KEY is required for an unknown/private dataset")
         self._usage_lock = threading.Lock()
@@ -219,7 +251,8 @@ class OpenAIResponsesClient:
             "model": self.model,
             "reasoning": {"effort": self.reasoning_effort},
             "input": [{"role": "user", "content": content}],
-            "text": {"verbosity": "medium"},
+            "text": {"verbosity": "low"},
+            "max_output_tokens": self.max_output_tokens,
             "store": False,
         }
         if json_schema is not None:
@@ -257,6 +290,11 @@ class OpenAIResponsesClient:
                     break
             except (urllib.error.URLError, TimeoutError) as exc:
                 last_error = exc
+            except LLMError as exc:
+                # A refusal or incomplete response is not a transient transport failure;
+                # let the planner's grounded repair attempt decide whether to retry.
+                last_error = exc
+                break
             if attempt < 2:
                 time.sleep(2 ** attempt)
         with self._usage_lock:
@@ -362,6 +400,56 @@ def vision_ocr_record(client: OpenAIResponsesClient, record: DocumentRecord) -> 
     ).strip()
 
 
+def select_authoritative_records(
+    records: list[DocumentRecord],
+    limit: int = MAX_SCENARIO_DOCUMENTS,
+) -> list[DocumentRecord]:
+    """Choose an authority-ranked but document-type-diverse evidence package."""
+    excluded_flags = {"obsolete", "draft", "rejected", "prior_period"}
+    active = sorted(
+        (item for item in records if not excluded_flags.intersection(item.flags)),
+        key=lambda item: (item.authority_score, item.path.name),
+        reverse=True,
+    )
+    selected: list[DocumentRecord] = []
+    seen: set[Path] = set()
+    # Reserve representation for every evidence class. This keeps an unscoped but
+    # entity-linked auditor report from being crowded out by many agreement copies.
+    for doc_type in ("loan_agreement", "audit", "aup", "kyc", "treasury_memo", "other"):
+        for item in (candidate for candidate in active if candidate.doc_type == doc_type):
+            if item.path in seen:
+                continue
+            selected.append(item)
+            seen.add(item.path)
+            if sum(record.doc_type == doc_type for record in selected) >= 2:
+                break
+    for item in active:
+        if len(selected) >= limit:
+            break
+        if item.path not in seen:
+            selected.append(item)
+            seen.add(item.path)
+    return selected[:limit]
+
+
+def bounded_document_text(record: DocumentRecord, budget: int) -> str:
+    """Keep evidence from every page while enforcing a predictable token budget."""
+    if len(record.text) <= budget:
+        return record.text
+    pages = record.pages or [record.text]
+    per_page = max(600, budget // len(pages))
+    chunks: list[str] = []
+    for page_number, page in enumerate(pages, start=1):
+        if len(page) <= per_page:
+            excerpt = page
+        else:
+            head = max(300, int(per_page * 0.72))
+            tail = max(200, per_page - head)
+            excerpt = f"{page[:head]}\n[...PAGE EXCERPT...]\n{page[-tail:]}"
+        chunks.append(f"[PAGE {page_number}]\n{excerpt}")
+    return "\n\n".join(chunks)[:budget]
+
+
 class LLMPlanner:
     def __init__(self, client: OpenAIResponsesClient) -> None:
         self.client = client
@@ -388,11 +476,14 @@ class LLMPlanner:
         ledger: Ledger,
         review: bool = True,
     ) -> list[Any]:
-        excluded_flags = {"obsolete", "draft", "rejected", "prior_period"}
-        authoritative = [item for item in records if not excluded_flags.intersection(item.flags)][:12]
+        authoritative = select_authoritative_records(records)
         if not authoritative:
             raise LLMError(f"{scenario_id}: no authoritative documents were resolved")
         documents: list[str] = []
+        per_document_budget = max(
+            12_000,
+            min(40_000, MAX_EVIDENCE_CHARS // max(1, len(authoritative))),
+        )
         for record in authoritative:
             text = record.text
             if record.low_text_pages:
@@ -400,9 +491,13 @@ class LLMPlanner:
                     text = vision_ocr_record(self.client, record)
                 except LLMError:
                     text = record.text
+            if text == record.text:
+                text = bounded_document_text(record, per_document_budget)
+            elif len(text) > per_document_budget:
+                text = text[:per_document_budget]
             documents.append(
                 f"FILE={record.path.name}; TYPE={record.doc_type}; AUTHORITY={record.authority_score}; "
-                f"FLAGS={','.join(record.flags) or 'none'}\n{text[:50000]}"
+                f"FLAGS={','.join(record.flags) or 'none'}\n{text}"
             )
         referenced_txn_ids = {
             match.group(0).upper()
@@ -422,9 +517,23 @@ class LLMPlanner:
             }
             for txn in ledger_context
         ]
-        prompt = f"""
+        evidence_package = f"""
+EVIDENCE PACKAGE FOR SCENARIO {scenario_id}
+
+DOCUMENTS
+{'\n\n=====\n\n'.join(documents)}
+
+LEDGER ROWS
+{json.dumps(txns, ensure_ascii=False, separators=(',', ':'))}
+
+LEDGER CONTEXT POLICY
+Rows include the scenario prefix, every row on borrower account {account_id}, and transaction IDs
+explicitly cross-referenced by authoritative documents. Do not assume unrelated archive rows are absent;
+use scope, dates, counterparties and document rules to select only relevant facts.
+""".strip()
+        planning_task = f"""
 You are the semantic planning component of an evidence-first bank covenant agent.
-Scenario: {scenario_id}; borrower account: {account_id}; required clauses: {clauses}.
+Borrower account: {account_id}; required clauses: {clauses}.
 
 Determine the current 2025 agreement, final auditor/AUP decisions, KYC relationships,
 missing/off-ledger facts, FX conversions and ledger transactions. Ignore obsolete 2024 copies,
@@ -440,9 +549,9 @@ Return JSON only, with this exact shape:
       "threshold": "decimal string",
       "expression": "safe arithmetic expression using fact names; allowed: + - * / abs min max",
       "facts": [
-        {{"name":"fact_name","type":"txn","ids":["TXN-..."],"absolute":true,"fallback":null,"value":null,"source":null,"note":null,"expression":null}},
-        {{"name":"document_fact","type":"literal","value":"decimal string","source":"filename.pdf","note":"page/fact","ids":[],"absolute":null,"fallback":null,"expression":null}},
-        {{"name":"derived_fact","type":"expression","expression":"expression using earlier facts","value":null,"source":null,"note":null,"ids":[],"absolute":null,"fallback":null}}
+        {{"name":"fact_name","type":"txn","ids":["TXN-..."],"absolute":true,"fallback":null}},
+        {{"name":"document_fact","type":"literal","value":"decimal string","source":"filename.pdf","note":"page/fact"}},
+        {{"name":"derived_fact","type":"expression","expression":"expression using earlier facts"}}
       ],
       "evidence_candidates": ["only transaction IDs whose inclusion/classification can flip the verdict"],
       "compare_round": null,
@@ -466,19 +575,11 @@ Rules:
 - Evidence is not the largest transaction. Include a candidate only when that particular transaction's
   identity, classification or counterfactual removal determines a breach.
 - If a ledger amount is blank but an authoritative document supplies it, use txn fallback.
-- Every fact item must include every schema field. Use null or [] for fields irrelevant to its type.
-
-DOCUMENTS
-{'\n\n=====\n\n'.join(documents)}
-
-LEDGER ROWS
-{json.dumps(txns, ensure_ascii=False, indent=2)}
-
-LEDGER CONTEXT POLICY
-Rows include the scenario prefix, every row on borrower account {account_id}, and transaction IDs
-explicitly cross-referenced by authoritative documents. Do not assume unrelated archive rows are absent;
-use scope, dates, counterparties and document rules to select only relevant facts.
+- Use only the fields shown for each fact type. Literal value/source and transaction ids cannot be null.
 """.strip()
+        # Both draft and reviewer requests start with an identical evidence prefix. The
+        # Responses API can therefore reuse cached input instead of billing the archive twice.
+        prompt = f"{evidence_package}\n\nPLANNING TASK\n{planning_task}"
         last_error: Exception | None = None
         document_names = {record.path.name for record in authoritative}
         for attempt in range(2):
@@ -500,9 +601,11 @@ use scope, dates, counterparties and document rules to select only relevant fact
                 for plan in plans:
                     validate_plan(plan, set(ledger.by_id), document_names)
                 if review:
-                    review_prompt = f"""
+                    review_prompt = f"""{evidence_package}
+
+REVIEW TASK
 Act as the independent second-pass reviewer of a bank covenant calculation plan.
-Check the candidate against the source documents and ledger embedded below. Correct only
+Check the candidate against the evidence package above. Correct only
 material errors: document authority, period, borrower/group scope, accepted versus rejected
 reclassification, KYC threshold, FX, missing/off-ledger amounts, formula, comparison operator,
 threshold and evidence candidates. Return JSON only in the same shape. Preserve every correct
@@ -510,9 +613,6 @@ field. There must be exactly these clauses: {clauses}.
 
 CANDIDATE PLAN
 {json.dumps(raw, ensure_ascii=False, indent=2)}
-
-ORIGINAL EVIDENCE PACKAGE
-{prompt}
 """.strip()
                     try:
                         reviewed = self._respond_plan_json(

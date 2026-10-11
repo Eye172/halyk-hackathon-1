@@ -17,6 +17,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from halyk_agent.io import Ledger, read_json
+from halyk_agent.llm import DEFAULT_MODEL, DEFAULT_REASONING_EFFORT
 from halyk_agent.runner import find_required_file, preflight_agent
 from halyk_agent.scoring import score_submission
 from halyk_agent.validation import validate_submission
@@ -125,9 +126,9 @@ class RunManager:
 
         team = str(payload.get("team") or "CHANGE_ME_TEAM").strip()
         contact_email = str(payload.get("contact_email") or "CHANGE_ME_EMAIL").strip()
-        model = str(payload.get("model") or "gpt-5.6").strip()
-        reasoning = str(payload.get("reasoning_effort") or "high")
-        if reasoning not in {"low", "medium", "high", "xhigh", "max"}:
+        model = str(payload.get("model") or DEFAULT_MODEL).strip()
+        reasoning = str(payload.get("reasoning_effort") or DEFAULT_REASONING_EFFORT)
+        if reasoning not in {"none", "low", "medium", "high", "xhigh", "max"}:
             raise ValueError("Недопустимый reasoning effort")
         review = bool(payload.get("review", True))
 

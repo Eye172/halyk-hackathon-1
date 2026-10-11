@@ -18,6 +18,7 @@ DATA = ROOT / "agentic-bank-public"
 
 
 class PublicBenchmarkTests(unittest.TestCase):
+    @unittest.skipUnless(DATA.is_dir(), "challenge public dataset is not distributed with the repository")
     def test_public_plans_reproduce_all_cells_without_reading_truth(self) -> None:
         template = read_json(DATA / "submission_template.json")
         ledger = Ledger.from_csv(DATA / "master_ledger_2025.csv")
@@ -34,6 +35,7 @@ class PublicBenchmarkTests(unittest.TestCase):
         self.assertEqual(result["score"], 1.0)
         self.assertEqual(result["points"], 36.0)
 
+    @unittest.skipUnless(DATA.is_dir(), "challenge public dataset is not distributed with the repository")
     def test_submission_validation_rejects_bad_status(self) -> None:
         template = read_json(DATA / "submission_template.json")
         ledger = Ledger.from_csv(DATA / "master_ledger_2025.csv")

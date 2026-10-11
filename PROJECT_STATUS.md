@@ -11,15 +11,23 @@
 - публичный `submission.json` валиден;
 - публичный локальный score: `1.000000` (`36.0 / 36.0`);
 - повторный запуск даёт тот же SHA-256 результата;
-- 20 unit/contract tests проходят, включая приватный planner/reviewer без сетевого вызова;
+- 24 unit/contract tests проходят, включая приватный planner/reviewer и API cost controls без сетевого вызова;
 - Python compile check проходит;
 - приватный LLM/OCR-режим, второй review pass и кэш реализованы;
 - сценарии приватного планирования выполняются параллельно с управляемым числом worker;
+- каждый готовый приватный сценарий атомарно сохраняется и переиспользуется после сбоя;
+- CLI и dashboard показывают live progress preflight/OCR/planning/validation вместо немого ожидания;
+- платный pipeline по умолчанию использует `gpt-5.6-terra`/`medium`, общий кэшируемый evidence-prefix
+  и предсказуемый лимит evidence/output;
+- strict fact schema разделена на `literal`/`txn`/`expression`, поэтому обязательные literal-поля
+  больше нельзя заполнить `null`;
+- документы без account/txn идентификаторов связываются со сценарием по редким entity-токенам;
 - реализован fail-closed plan validator для PDF, txn, DSL, source и evidence;
 - документированные exception/waiver правила меняют статус без искажения `actual`;
 - preflight, semantic plan, review log, counterfactual trace и quality report сохраняются раздельно;
 - dashboard показывает readiness hard gates, boundary risk и SHA-256 submission;
 - локальный Git-репозиторий и `.gitignore` подготовлены.
+- GitHub Actions проверяет Python 3.11/3.12 на Windows и Linux без публикации challenge-датасетов;
 - локальный приватный архив полностью прошёл структурный preflight: template, ledger, PDF,
   сценарная привязка, OCR runtime и fingerprint isolation; содержимое архива исключено из Git;
 - поддерживаются буквенно-цифровые сценарии и нестандартные идентификаторы счетов из ledger;
@@ -33,7 +41,8 @@
 
 1. Заменить `CHANGE_ME_TEAM` и `CHANGE_ME_EMAIL` реальными значениями через параметры запуска.
 2. Для приватного набора задать `OPENAI_API_KEY`; `pdftoppm` уже найден локальным preflight.
-3. Запустить `run_private.ps1` на приватном архиве.
+3. Запустить `run_private.ps1` на приватном архиве; после технического сбоя повторить ту же команду —
+   совместимые scenario checkpoints будут подхвачены автоматически.
 4. Получить `VALID` от валидатора.
 5. Убедиться, что `quality_report.json` содержит `hard_gates_passed = true`, и проверить boundary risk.
 6. Проверить `plan_review.json`: исправления допустимы, fallback требует ручного разбора причины и повторного запуска агента.

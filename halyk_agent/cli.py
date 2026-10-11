@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from .io import Ledger, read_json
+from .llm import DEFAULT_MODEL, DEFAULT_REASONING_EFFORT
 from .runner import find_required_file, preflight_agent, run_agent
 from .scoring import score_submission
 from .validation import validate_submission
@@ -23,9 +24,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--team", default=os.environ.get("HALYK_TEAM", "CHANGE_ME_TEAM"))
     run.add_argument("--contact-email", default=os.environ.get("HALYK_CONTACT_EMAIL", "CHANGE_ME_EMAIL"))
     run.add_argument("--mode", choices=["auto", "public", "llm"], default="auto")
-    run.add_argument("--model", default=os.environ.get("OPENAI_MODEL", "gpt-5.6"))
-    run.add_argument("--reasoning-effort", choices=["low", "medium", "high", "xhigh", "max"], default="high")
+    run.add_argument("--model", default=os.environ.get("OPENAI_MODEL", DEFAULT_MODEL))
+    run.add_argument(
+        "--reasoning-effort",
+        choices=["none", "low", "medium", "high", "xhigh", "max"],
+        default=DEFAULT_REASONING_EFFORT,
+    )
     run.add_argument("--single-pass", action="store_true", help="Disable the independent LLM review pass")
+    run.add_argument("--no-resume", action="store_true", help="Ignore compatible scenario checkpoints")
     run.add_argument("--workers", type=int, default=int(os.environ.get("HALYK_LLM_WORKERS", "3")), help="Parallel scenario planners (1-6)")
 
     preflight = sub.add_parser("preflight", help="Check dataset and runtime readiness without calling an LLM")
@@ -66,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
             review=not args.single_pass,
             workers=args.workers,
             artifacts_dir=args.artifacts,
+            resume=not args.no_resume,
+            progress_callback=lambda message: print(message, flush=True),
         )
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0

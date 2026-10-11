@@ -15,6 +15,23 @@ ACCOUNT_RE = re.compile(r"ACC-\d{4,}", re.IGNORECASE)
 GENERIC_LEDGER_ID_RE = re.compile(r"(?<![A-Z0-9])([A-Z][A-Z0-9]{1,15}-[A-Z0-9-]*\d[A-Z0-9-]*)(?![A-Z0-9])", re.IGNORECASE)
 SCENARIO_RE = re.compile(r"TXN-([A-Za-z][A-Za-z0-9]*)-", re.IGNORECASE)
 MIN_TEXT_PAGE_CHARS = 40
+ENTITY_TOKEN_RE = re.compile(r"[^\W\d_]{4,}", re.UNICODE)
+GENERIC_ENTITY_TOKENS = {
+    "account", "agreement", "audit", "auditor", "bank", "borrower", "company",
+    "covenant", "current", "document", "final", "group", "holding", "independent",
+    "kazakhstan", "ledger", "limited", "report", "transaction",
+    "банк", "банка", "группа", "договор", "заемщик", "заёмщик", "компания", "отчет",
+    "отчёт", "финальный", "холдинг",
+}
+
+
+def entity_bigrams(text: str) -> set[tuple[str, str]]:
+    tokens = [
+        token.lower()
+        for token in ENTITY_TOKEN_RE.findall(text)
+        if token.lower() not in GENERIC_ENTITY_TOKENS
+    ]
+    return set(zip(tokens, tokens[1:]))
 
 
 def extract_account_ids(text: str, known_account_ids: Iterable[str] = ()) -> list[str]:
@@ -77,6 +94,15 @@ class DocumentIndex:
     def __init__(self, records: list[DocumentRecord], known_account_ids: Iterable[str] = ()) -> None:
         self.records = records
         self.known_account_ids = tuple(sorted({item.strip().upper() for item in known_account_ids if item.strip()}))
+        self._bigrams_by_path = {record.path: entity_bigrams(record.text) for record in records}
+        self._bigram_frequency: dict[tuple[str, str], int] = {}
+        self._paths_by_bigram: dict[tuple[str, str], set[Path]] = {}
+        for path, bigrams in self._bigrams_by_path.items():
+            for bigram in bigrams:
+                self._bigram_frequency[bigram] = self._bigram_frequency.get(bigram, 0) + 1
+                self._paths_by_bigram.setdefault(bigram, set()).add(path)
+        self._record_by_path = {record.path: record for record in records}
+        self._scenario_cache: dict[tuple[str, str | None], list[DocumentRecord]] = {}
 
     @classmethod
     def build(
@@ -119,13 +145,52 @@ class DocumentIndex:
         return cls(records, known_accounts)
 
     def for_scenario(self, scenario_id: str, account_id: str | None) -> list[DocumentRecord]:
-        selected = []
+        cache_key = (scenario_id.upper(), account_id.upper() if account_id else None)
+        if cache_key in self._scenario_cache:
+            return list(self._scenario_cache[cache_key])
+        selected: list[DocumentRecord] = []
         for record in self.records:
             if scenario_id.upper() in record.scenario_ids:
                 selected.append(record)
             elif account_id and account_id.upper() in record.account_ids:
                 selected.append(record)
-        return sorted(selected, key=lambda item: (item.authority_score, item.path.name), reverse=True)
+        # Consolidated auditor/AUP reports sometimes name the borrower but omit both its
+        # account and scenario transaction IDs. Expand direct matches with a small set of
+        # documents sharing a rare two-word entity phrase confirmed by at least two direct
+        # records (for example the borrower's company name).
+        selected_paths = {item.path for item in selected}
+        rare_cutoff = max(3, round(len(self.records) * 0.03))
+        direct_bigram_counts: dict[tuple[str, str], int] = {}
+        for item in selected:
+            for bigram in self._bigrams_by_path.get(item.path, set()):
+                direct_bigram_counts[bigram] = direct_bigram_counts.get(bigram, 0) + 1
+        anchor_bigrams = {
+            bigram
+            for bigram, direct_count in direct_bigram_counts.items()
+            if direct_count >= 2 and self._bigram_frequency.get(bigram, 0) <= rare_cutoff
+        }
+        shared_counts: dict[Path, int] = {}
+        rarity_scores: dict[Path, float] = {}
+        for bigram in anchor_bigrams:
+            for path in self._paths_by_bigram.get(bigram, set()):
+                if path in selected_paths:
+                    continue
+                record = self._record_by_path[path]
+                if record.account_ids or record.scenario_ids:
+                    continue
+                shared_counts[path] = shared_counts.get(path, 0) + 1
+                rarity_scores[path] = rarity_scores.get(path, 0.0) + 1 / self._bigram_frequency[bigram]
+        related: list[tuple[int, float, int, str, DocumentRecord]] = []
+        for path, shared_count in shared_counts.items():
+            record = self._record_by_path[path]
+            related.append(
+                (shared_count, rarity_scores[path], record.authority_score, record.path.name, record)
+            )
+        related.sort(key=lambda item: item[:-1], reverse=True)
+        selected.extend(item[-1] for item in related[:4])
+        resolved = sorted(selected, key=lambda item: (item.authority_score, item.path.name), reverse=True)
+        self._scenario_cache[cache_key] = resolved
+        return list(resolved)
 
     def replace_text(self, record: DocumentRecord, text: str) -> None:
         original_page_count = max(1, len(record.pages))
@@ -139,6 +204,22 @@ class DocumentIndex:
         record.doc_type, record.authority_score, record.flags = classify_document(text)
         record.account_ids = extract_account_ids(text, self.known_account_ids)
         record.scenario_ids = sorted({x.upper() for x in SCENARIO_RE.findall(text)})
+        old_bigrams = self._bigrams_by_path.get(record.path, set())
+        for bigram in old_bigrams:
+            self._bigram_frequency[bigram] -= 1
+            paths = self._paths_by_bigram.get(bigram)
+            if paths is not None:
+                paths.discard(record.path)
+                if not paths:
+                    del self._paths_by_bigram[bigram]
+            if self._bigram_frequency[bigram] <= 0:
+                del self._bigram_frequency[bigram]
+        new_bigrams = entity_bigrams(text)
+        self._bigrams_by_path[record.path] = new_bigrams
+        for bigram in new_bigrams:
+            self._bigram_frequency[bigram] = self._bigram_frequency.get(bigram, 0) + 1
+            self._paths_by_bigram.setdefault(bigram, set()).add(record.path)
+        self._scenario_cache.clear()
 
     def manifest(self) -> list[dict[str, object]]:
         return [

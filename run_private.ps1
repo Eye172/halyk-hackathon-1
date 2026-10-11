@@ -5,9 +5,9 @@ param(
     [string]$Team,
     [Parameter(Mandatory = $true)]
     [string]$ContactEmail,
-    [string]$Model = "gpt-5.6",
-    [ValidateSet("medium", "high", "xhigh", "max")]
-    [string]$ReasoningEffort = "high",
+    [string]$Model = "gpt-5.6-terra",
+    [ValidateSet("none", "low", "medium", "high", "xhigh", "max")]
+    [string]$ReasoningEffort = "medium",
     [ValidateRange(1, 6)]
     [int]$Workers = 3
 )
@@ -39,6 +39,6 @@ python run_agent.py run `
     --model $Model `
     --reasoning-effort $ReasoningEffort `
     --workers $Workers
-Assert-AgentStep "Private agent run"
+Assert-AgentStep "Private agent run (completed scenarios are checkpointed; rerun the same command to resume)"
 python run_agent.py validate --data $DataDirectory --submission submission.json
 Assert-AgentStep "Submission validation"

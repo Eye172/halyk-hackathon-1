@@ -10,11 +10,23 @@ from unittest.mock import patch
 
 from halyk_agent.documents import DocumentIndex, classify_document, extract_account_ids
 from halyk_agent.engine import execute_plan
-from halyk_agent.io import Ledger, read_json
-from halyk_agent.llm import LLMPlanner, normalize_plan_payload, parse_json_response, plan_response_schema
+from halyk_agent.io import Ledger, read_json, write_json
+from halyk_agent.llm import (
+    LLMPlanner,
+    OpenAIResponsesClient,
+    normalize_plan_payload,
+    parse_json_response,
+    plan_response_schema,
+    select_authoritative_records,
+)
 from halyk_agent.models import CovenantPlan, DocumentRecord, Transaction
 from halyk_agent.plans import load_fact_pack, parse_plan, validate_plan
-from halyk_agent.runner import PUBLIC_FACT_PACK, preflight_agent
+from halyk_agent.runner import (
+    PUBLIC_FACT_PACK,
+    checkpoint_filename,
+    load_planning_checkpoint,
+    preflight_agent,
+)
 from halyk_agent.validation import SubmissionValidationError, validate_submission
 
 
@@ -137,6 +149,52 @@ class AuthorityResolutionTests(unittest.TestCase):
         self.assertEqual(record.low_text_pages, [])
         self.assertEqual(record.account_ids, ["TELE-4471"])
 
+    def test_unscoped_report_is_linked_by_rare_borrower_name(self) -> None:
+        direct = DocumentRecord(
+            path=Path("agreement.pdf"), sha256="1" * 64,
+            pages=["Loan agreement for Turkestan Grain Holding, account ACC-1000."],
+            page_char_counts=[70], doc_type="loan_agreement", authority_score=110,
+            account_ids=["ACC-1000"], flags=["current_period"],
+        )
+        direct_kyc = DocumentRecord(
+            path=Path("kyc.pdf"), sha256="4" * 64,
+            pages=["KYC profile confirms Turkestan Grain Holding, account ACC-1000."],
+            page_char_counts=[65], doc_type="kyc", authority_score=90,
+            account_ids=["ACC-1000"], flags=["current_period"],
+        )
+        consolidated = DocumentRecord(
+            path=Path("consolidated.pdf"), sha256="2" * 64,
+            pages=["Independent auditor final report for Turkestan Grain Holding."],
+            page_char_counts=[65], doc_type="audit", authority_score=110,
+            flags=["final", "current_period"],
+        )
+        noise = DocumentRecord(
+            path=Path("noise.pdf"), sha256="3" * 64,
+            pages=["Independent auditor report for a different industrial group."],
+            page_char_counts=[64], doc_type="audit", authority_score=110,
+        )
+        index = DocumentIndex([direct, direct_kyc, consolidated, noise], {"ACC-1000"})
+        resolved = index.for_scenario("F3", "ACC-1000")
+        self.assertIn(consolidated, resolved)
+        self.assertNotIn(noise, resolved)
+
+    def test_authoritative_selection_preserves_document_type_diversity(self) -> None:
+        records = [
+            DocumentRecord(
+                path=Path(f"loan-{index}.pdf"), sha256=str(index) * 64,
+                pages=["Loan Agreement 2025"], page_char_counts=[50],
+                doc_type="loan_agreement", authority_score=200 - index,
+            )
+            for index in range(15)
+        ]
+        audit = DocumentRecord(
+            path=Path("audit.pdf"), sha256="a" * 64, pages=["Independent auditor final 2025"],
+            page_char_counts=[50], doc_type="audit", authority_score=100,
+        )
+        selected = select_authoritative_records([*records, audit])
+        self.assertIn(audit, selected)
+        self.assertLessEqual(len(selected), 12)
+
 
 class PrivatePlannerContractTests(unittest.TestCase):
     def test_planner_and_independent_review_work_without_network_in_contract_test(self) -> None:
@@ -180,6 +238,28 @@ class PrivatePlannerContractTests(unittest.TestCase):
     def test_fenced_json_is_accepted(self) -> None:
         self.assertEqual(parse_json_response("```json\n{\"ok\": true}\n```"), {"ok": True})
 
+    def test_responses_request_enforces_cost_controls(self) -> None:
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return b'{"output_text":"ok","usage":{}}'
+
+        client = OpenAIResponsesClient(api_key="test-key", max_output_tokens=4096)
+        with patch("urllib.request.urlopen", return_value=FakeResponse()) as urlopen:
+            self.assertEqual(client.respond("test"), "ok")
+        request = urlopen.call_args.args[0]
+        body = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(body["model"], "gpt-5.6-terra")
+        self.assertEqual(body["reasoning"]["effort"], "medium")
+        self.assertEqual(body["text"]["verbosity"], "low")
+        self.assertEqual(body["max_output_tokens"], 4096)
+        self.assertFalse(body["store"])
+
     def test_strict_plan_payload_normalizes_fact_list(self) -> None:
         raw = {
             "covenants": [{
@@ -199,6 +279,31 @@ class PrivatePlannerContractTests(unittest.TestCase):
         self.assertIsNone(normalized["covenants"][0]["status_override"])
         schema = plan_response_schema(["6.1"])
         self.assertFalse(schema["additionalProperties"])
+        fact_union = schema["properties"]["covenants"]["items"]["properties"]["facts"]["items"]
+        self.assertEqual(len(fact_union["anyOf"]), 3)
+        literal_schema = fact_union["anyOf"][0]
+        self.assertEqual(literal_schema["properties"]["value"]["type"], "string")
+        self.assertEqual(literal_schema["properties"]["source"]["type"], "string")
+
+    def test_scenario_checkpoint_round_trip_is_validated(self) -> None:
+        checkpoint = ROOT / "tmp" / "test-checkpoint" / checkpoint_filename("T1")
+        plan = simple_plan()
+        write_json(checkpoint, {
+            "contract_version": "2",
+            "scenario_id": "T1",
+            "clauses": ["6.1"],
+            "plans": [plan.trace_value()],
+            "review": {"status": "confirmed"},
+        })
+        plans, review = load_planning_checkpoint(
+            checkpoint,
+            scenario_id="T1",
+            clauses=["6.1"],
+            ledger_ids={"TXN-T1-0001"},
+            document_names={"loan.pdf"},
+        )
+        self.assertEqual(plans[0].clause, "6.1")
+        self.assertEqual(review, {"status": "confirmed"})
 
 
 class OperationalGateTests(unittest.TestCase):
@@ -211,6 +316,7 @@ class OperationalGateTests(unittest.TestCase):
         context = ledger.context_for_scenario("T1", "ACC-1", {"TXN-X9-0002"})
         self.assertEqual([item.txn_id for item in context], ["TXN-T1-0001", "TXN-X9-0002"])
 
+    @unittest.skipUnless(DATA.is_dir(), "challenge public dataset is not distributed with the repository")
     def test_forced_private_preflight_requires_server_api_key(self) -> None:
         with patch.dict(os.environ, {"OPENAI_API_KEY": ""}, clear=False):
             report = preflight_agent(
@@ -224,6 +330,7 @@ class OperationalGateTests(unittest.TestCase):
         self.assertEqual(access["status"], "fail")
         self.assertFalse(report["hard_gates_passed"])
 
+    @unittest.skipUnless(DATA.is_dir(), "challenge public dataset is not distributed with the repository")
     def test_submission_rejects_negative_actual(self) -> None:
         template = read_json(DATA / "submission_template.json")
         ledger = Ledger.from_csv(DATA / "master_ledger_2025.csv")

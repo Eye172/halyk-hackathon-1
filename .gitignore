@@ -5,6 +5,8 @@ __pycache__/
 .env
 artifacts/
 submission.json
+/submission_private*.json
+/tools/urgent_private_submission.py
 tmp/
 agentic-bank-public/
 agentic-bank-hidden/

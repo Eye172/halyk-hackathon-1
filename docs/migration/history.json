@@ -1,0 +1,95 @@
+{
+  "project": "halyk",
+  "target": "Eye172/halyk-hackathon-1",
+  "source": "pip00sya/Halyk-ai-agent",
+  "created_utc": "2026-10-11T18:27:32.568125+00:00",
+  "identity": {
+    "name": "Shakhnazar Akhmer",
+    "email": "260007353+Eye172@users.noreply.github.com",
+    "login": "Eye172"
+  },
+  "verified": {
+    "file_trees_unchanged": true,
+    "messages_unchanged": true,
+    "dates_unchanged": true,
+    "parent_topology_preserved": true
+  },
+  "original_target_refs": [],
+  "original_imported_refs": [
+    [
+      "refs/heads/archive/local-remote/origin/main",
+      "commit",
+      "552e18b6ab22556d45283c3332f5c1fd14c01751"
+    ],
+    [
+      "refs/heads/archive/local/codex/reliability-hardening",
+      "commit",
+      "552e18b6ab22556d45283c3332f5c1fd14c01751"
+    ],
+    [
+      "refs/heads/archive/local/main",
+      "commit",
+      "552e18b6ab22556d45283c3332f5c1fd14c01751"
+    ],
+    [
+      "refs/heads/archive/pip00sya/main",
+      "commit",
+      "552e18b6ab22556d45283c3332f5c1fd14c01751"
+    ]
+  ],
+  "republished_refs": [
+    [
+      "refs/heads/archive/local-remote/origin/main",
+      "commit",
+      "57f0208866fbdc226694aa5516e33a7463e19223"
+    ],
+    [
+      "refs/heads/archive/local/codex/reliability-hardening",
+      "commit",
+      "57f0208866fbdc226694aa5516e33a7463e19223"
+    ],
+    [
+      "refs/heads/archive/local/main",
+      "commit",
+      "57f0208866fbdc226694aa5516e33a7463e19223"
+    ],
+    [
+      "refs/heads/archive/pip00sya/main",
+      "commit",
+      "a55b9499e872f2f23aa587e8772dfb74c90c766f"
+    ],
+    [
+      "refs/heads/archive/source-documentation/main",
+      "commit",
+      "a55b9499e872f2f23aa587e8772dfb74c90c766f"
+    ],
+    [
+      "refs/heads/main",
+      "commit",
+      "3934ec04b7c2c1ceda34e2a419913402704800c3"
+    ]
+  ],
+  "commits": [
+    {
+      "original_sha": "552e18b6ab22556d45283c3332f5c1fd14c01751",
+      "republished_sha": "57f0208866fbdc226694aa5516e33a7463e19223",
+      "tree": "086fe4ec8d2d25e170687c833124c2da9d95a676",
+      "original_parents": [],
+      "original_author": "Nurkhan <nurkhanaimukatov@gmail.com> 1786264189 +0500",
+      "original_committer": "Nurkhan <nurkhanaimukatov@gmail.com> 1786264189 +0500",
+      "message": "Initial evidence-first Halyk AI agent\n"
+    },
+    {
+      "original_sha": "ed88dee6aba9ff97e5be869729f22d1fa7ae1fc2",
+      "republished_sha": "a55b9499e872f2f23aa587e8772dfb74c90c766f",
+      "tree": "eff839f31c45daef458538a408bca66b65ed4d6c",
+      "original_parents": [
+        "552e18b6ab22556d45283c3332f5c1fd14c01751"
+      ],
+      "original_author": "Shakhnazar Akhmer <260007353+Eye172@users.noreply.github.com> 1791743557 +0500",
+      "original_committer": "Shakhnazar Akhmer <260007353+Eye172@users.noreply.github.com> 1791743557 +0500",
+      "message": "Document joint QwertyS development and link Eye172 project copy\n",
+      "purpose": "Cross-linked source README"
+    }
+  ]
+}

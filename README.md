@@ -1,5 +1,9 @@
 # Halyk Covenant Agent
 
+[![CI](https://github.com/Eye172/halyk-hackathon-1/actions/workflows/ci.yml/badge.svg)](https://github.com/Eye172/halyk-hackathon-1/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
+![Architecture](https://img.shields.io/badge/architecture-evidence--first-008F70)
+
 Автономный evidence-first агент для Halyk AI Challenge. Он читает архив документов и
 реестр транзакций, выбирает действующие версии документов, строит формализованный план
 расчёта, вычисляет ковенанты через `Decimal`, проверяет транзакции-улики контрфактом и
@@ -35,9 +39,18 @@ score внутри интерфейса явно помечен как кали�
 - приоритет действующих/финальных документов над черновиками и редакциями 2024 года;
 - поиск страниц с недостаточным текстовым слоем;
 - vision-OCR таких страниц в приватном LLM-режиме;
-- строгий Structured Output: planner/reviewer обязаны вернуть JSON по динамической схеме ковенантов;
+- строгий Structured Output с отдельными схемами `literal` / `txn` / `expression`: модель физически
+  не может вернуть документальный факт без числа и источника;
 - независимый второй LLM-проход, проверяющий первый план по исходным доказательствам;
 - параллельное планирование независимых сценариев (по умолчанию 3 worker) с retry API;
+- атомарные scenario checkpoints: успешные платные вызовы сохраняются сразу, а повторный запуск
+  продолжает незавершённые сценарии вместо повторной оплаты;
+- live progress по preflight/OCR/каждому сценарию/валидации выводится в терминал и журнал dashboard,
+  поэтому долгий private-run не выглядит зависшим;
+- одинаковый evidence-prefix planner/reviewer для автоматического prompt caching и лимит входного
+  архива с сохранением выдержек каждой страницы;
+- entity-linking находит консолидированные отчёты по редкому имени заёмщика, даже если в PDF нет
+  `account_id` или `TXN-*`;
 - расширенный ledger-контекст: строки сценария, счёта заёмщика и явно упомянутые cross-reference транзакции;
 - кэширование обычного и vision-OCR текста;
 - безопасный DSL арифметики: `+`, `-`, `*`, `/`, `abs`, `min`, `max`;
@@ -123,8 +136,8 @@ $env:OPENAI_API_KEY = "..."
   -DataDirectory ".\agentic-bank-hidden" `
   -Team "НАЗВАНИЕ_КОМАНДЫ" `
   -ContactEmail "EMAIL" `
-  -Model "gpt-5.6" `
-  -ReasoningEffort "high"
+  -Model "gpt-5.6-terra" `
+  -ReasoningEffort "medium"
 ```
 
 Скрипт сначала выполняет `preflight` без расхода токенов, а затем запускает до трёх независимых
@@ -147,12 +160,27 @@ python run_agent.py run `
   --team "НАЗВАНИЕ_КОМАНДЫ" `
   --contact-email "EMAIL" `
   --mode llm `
-  --model gpt-5.6 `
-  --reasoning-effort high
+  --model gpt-5.6-terra `
+  --reasoning-effort medium
 ```
 
 По умолчанию приватный режим делает второй проверочный проход. Флаг `--single-pass` экономит
 время и токены, но для финальной попытки не рекомендуется.
+
+### Контроль стоимости и восстановление
+
+- `gpt-5.6-terra` выбран как баланс качества и стоимости; модель можно переопределить параметром.
+- `medium` — безопасный стартовый reasoning effort; повышать его стоит только после сравнения на
+  собственных eval-сценариях.
+- `OPENAI_MAX_OUTPUT_TOKENS` ограничивает один ответ (по умолчанию `20000`, минимум `1024`).
+- `artifacts/planning_progress.json` показывает готовые и ожидающие сценарии и usage текущего процесса.
+- `artifacts/planning_checkpoints/<fingerprint>/` содержит только проверенные семантические планы.
+  Fingerprint включает датасет, документы, модель, reasoning, review и версию контракта.
+- После quota/rate-limit/validation ошибки достаточно повторить ту же команду: совместимые сценарии
+  будут переиспользованы. `--no-resume` принудительно игнорирует checkpoints.
+
+Настройки модели основаны на [официальной документации OpenAI для GPT-5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra)
+и [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
 
 Ключ API не выводится и не сохраняется. Для `pdftoppm` можно явно задать путь:
 
@@ -199,6 +227,8 @@ artifacts/
   document_manifest.json
   semantic_plans.json
   plan_review.json          # private LLM-режим
+  planning_progress.json    # live/resume состояние private-планирования
+  planning_checkpoints/     # атомарные сценарные checkpoints, привязанные fingerprint
   decision_trace.json
   document_text_cache/
   vision_ocr_cache/       # только после LLM/OCR
@@ -211,6 +241,7 @@ artifacts/
 - `document_manifest.json` — тип, SHA-256, версия и качество текста каждого PDF;
 - `semantic_plans.json` — формулы, факты, документированные исключения и источники до вычисления;
 - `plan_review.json` — confirmed/corrected/fallback статус независимого второго LLM-прохода;
+- `planning_progress.json` — какие сценарии готовы, переиспользованы или ожидают запуска;
 - `decision_trace.json` — полный технический аудит 36 решений;
 - кэши ускоряют повторный запуск и не являются ответами.
 
@@ -239,6 +270,10 @@ python -m unittest discover -s tests -v
 python -m compileall -q halyk_agent tests run_agent.py score_public.py validate_submission.py dashboard_server.py
 ```
 
+GitHub Actions выполняет unit/contract tests и compile check на Python 3.11/3.12 под Windows и
+Linux. В этой приватной копии сохранены оба датасета соревнования; зависящие от них benchmark-тесты в чистом
+клоне помечаются `skipped`, а при наличии локальной папки автоматически включаются и проверяют `36/36`.
+
 ## Структура проекта
 
 ```text
@@ -264,3 +299,40 @@ Codex и другие готовые агенты допустимы для ра
 создавать собственный агент. Поэтому в боевом прогоне нельзя вручную переписывать verdict,
 actual или evidence после запуска. Допустим технический контроль процесса, повторный запуск
 после исправления кода и проверка валидатора.
+
+## Архив данных и результатов
+
+Эта приватная копия сохраняет локальные материалы проекта: публичный датасет
+`agentic-bank-public/` (200 PDF), скрытый датасет `agentic-bank-hidden/` (302 PDF),
+реестры транзакций, шаблоны, описания кейса, `submission.json`,
+`submission_private.json`, отчёты `artifacts/` и рабочие материалы `tmp/`.
+Манифест файлов с SHA-256 находится в `docs/migration/file-manifest.json`.
+
+Результаты сохранены в исходном виде. В публичном submission остаются
+`CHANGE_ME_TEAM` и `CHANGE_ME_EMAIL`; сохранённый quality report сообщает
+`hard_gates_passed = false`. Архив результатов сам по себе не подтверждает
+готовность к повторной сдаче или private score. Для новой сдачи задайте метаданные
+команды, выполните новый запуск и проверьте validator и quality report.
+
+## Команда и происхождение репозитория
+
+**QwertyS** — совместная разработка Шахназара Ахмера и Нурхана Аймукатова.
+
+| Участник | GitHub | Роли |
+|---|---|---|
+| Шахназар Ахмер / Shakhnazar Akhmer | [Eye172](https://github.com/Eye172) | Full-stack Engineer · Software Engineer · AI Engineer · ML Engineer |
+| Нурхан Аймукатов / Nurkhan Aimukatov | [pip00sya](https://github.com/pip00sya) | Full-stack Engineer · Software Engineer · AI Engineer |
+
+Участники работают в равных инженерных ролях. Исходный репозиторий:
+[pip00sya/Halyk-ai-agent](https://github.com/pip00sya/Halyk-ai-agent). Копия с полной историей и
+материалами: [Eye172/halyk-hackathon-1](https://github.com/Eye172/halyk-hackathon-1).
+
+## Migration record
+
+This copy republishes the complete imported Git history under the Eye172 account,
+at Shakhnazar Akhmer's request. File trees, commit dates, messages and parent
+relationships are preserved. Original authorship metadata, source references and
+the original-to-republished commit mapping are in
+[docs/migration/history.json](docs/migration/history.json).
+Source repositories and their existing development history remain preserved.
+API credentials and machine environment files are supplied separately at runtime.

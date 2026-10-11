@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
 import re
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -32,6 +33,22 @@ def write_json(path: Path, value: Any) -> None:
     with path.open("w", encoding="utf-8", newline="\n") as stream:
         json.dump(value, stream, ensure_ascii=False, indent=2)
         stream.write("\n")
+
+
+def write_json_atomic(path: Path, value: Any) -> None:
+    """Write JSON through a same-directory temporary file, then atomically replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+            json.dump(value, stream, ensure_ascii=False, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 def _parse_decimal(value: str | None) -> Decimal | None:
