@@ -1,0 +1,357 @@
+# Halyk Covenant Agent
+
+[![CI](https://github.com/Eye172/halyk-hackathon-1/actions/workflows/ci.yml/badge.svg)](https://github.com/Eye172/halyk-hackathon-1/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
+![Architecture](https://img.shields.io/badge/architecture-evidence--first-008F70)
+
+Автономный evidence-first агент для Halyk AI Challenge. Он читает архив документов и
+реестр транзакций, выбирает действующие версии документов, строит формализованный план
+расчёта, вычисляет ковенанты через `Decimal`, проверяет транзакции-улики контрфактом и
+создаёт валидный `submission.json`.
+
+Публичный контрольный прогон: **36/36 ячеек, локальный score 1.000000**.
+
+## Локальная дизайнерская панель
+
+В проекте есть Halyk AI Command Center — продуктовый dashboard в визуальном языке Halyk для запуска агента,
+валидации `submission.json`, просмотра всех решений и их `decision_trace`, а также чтения
+документации проекта. Ключи API не передаются в браузер: сервер только сообщает, настроена
+ли нужная переменная окружения.
+
+```powershell
+.\run_dashboard.ps1
+```
+
+После запуска откроется `http://127.0.0.1:8765`. Альтернативный запуск:
+
+```powershell
+python dashboard_server.py
+```
+
+Панель работает на стандартной библиотеке Python и не добавляет web-зависимостей. Public
+score внутри интерфейса явно помечен как калибровочный: результат `36/36` не подменяет
+проверку LLM-пайплайна на приватном наборе.
+
+## Что реализовано
+
+- индексирование всех PDF с SHA-256 и постраничным извлечением текста;
+- классификация договоров, KYC, аудита, AUP и казначейских записок;
+- приоритет действующих/финальных документов над черновиками и редакциями 2024 года;
+- поиск страниц с недостаточным текстовым слоем;
+- vision-OCR таких страниц в приватном LLM-режиме;
+- строгий Structured Output с отдельными схемами `literal` / `txn` / `expression`: модель физически
+  не может вернуть документальный факт без числа и источника;
+- независимый второй LLM-проход, проверяющий первый план по исходным доказательствам;
+- параллельное планирование независимых сценариев (по умолчанию 3 worker) с retry API;
+- атомарные scenario checkpoints: успешные платные вызовы сохраняются сразу, а повторный запуск
+  продолжает незавершённые сценарии вместо повторной оплаты;
+- live progress по preflight/OCR/каждому сценарию/валидации выводится в терминал и журнал dashboard,
+  поэтому долгий private-run не выглядит зависшим;
+- одинаковый evidence-prefix planner/reviewer для автоматического prompt caching и лимит входного
+  архива с сохранением выдержек каждой страницы;
+- entity-linking находит консолидированные отчёты по редкому имени заёмщика, даже если в PDF нет
+  `account_id` или `TXN-*`;
+- расширенный ledger-контекст: строки сценария, счёта заёмщика и явно упомянутые cross-reference транзакции;
+- кэширование обычного и vision-OCR текста;
+- безопасный DSL арифметики: `+`, `-`, `*`, `/`, `abs`, `min`, `max`;
+- безопасные документированные `status_override` для waiver/exception/applicability без искажения `actual`;
+- точные вычисления `Decimal` и округление только перед записью результата;
+- контрфактическая проверка `evidence_txn_id`;
+- fail-closed проверка планов: выдуманный PDF, неизвестный `txn_id`, неподдерживаемая формула или неотносящаяся улика останавливают запуск;
+- строгая проверка ключей, типов и транзакций по `submission_template.json`;
+- локальная копия публичной формулы scoring;
+- `decision_trace.json` с фактами, формулой и происхождением каждого результата;
+- отдельный режим для приватного датасета без использования публичных ответов.
+- preflight до вызова модели и независимый QA-отчёт после расчёта с SHA-256 итогового файла;
+- телеметрия LLM-вызовов: latency, input/output/cached tokens и число ошибок без сохранения ключа.
+
+## Почему это не LLM-wrapper
+
+Модель здесь не пишет финальный JSON напрямую. Она преобразует неструктурированные документы
+в ограниченный семантический план. Затем отдельный детерминированный слой проверяет ссылки на
+файлы и транзакции, вычисляет значения через `Decimal`, применяет только формализованные
+исключения, доказывает улику контрфактом и валидирует контракт submission. Любой план с
+галлюцинацией останавливается до записи ответа. Именно этот разделяемый audit trail можно показать
+жюри и воспроизвести повторным запуском.
+
+Сценарий 90-секундной защиты и боевой таймлайн приватного окна находятся в
+[`WINNING_STRATEGY.md`](WINNING_STRATEGY.md).
+
+## Небольшой пример без API-ключа
+
+В [examples/covenant-sample](examples/covenant-sample/README.md) доступны два PDF,
+четыре транзакции и одна проверка ковенанта. Полные датасеты и ответы не распространяются.
+
+```powershell
+python -m pip install -r requirements.txt
+python tools/run_sample.py
+```
+
+Это воспроизведение документированного плана через существующий Decimal-движок,
+а не новый LLM-прогон. Скрипт проверяет PDF, источники, fingerprint, схему и результат.
+
+## Полный контрольный запуск на локальном датасете
+
+Следующие команды требуют отдельно предоставленного полного `agentic-bank-public/`
+и локального `halyk_agent/config/public_fact_pack.json`. Оба исключены из Git.
+Без fact pack режим `auto` переходит к LLM и требует ключ API; для проверки
+известного benchmark используйте явно `--mode public`.
+
+
+Из корня проекта:
+
+```powershell
+python -m pip install -r requirements.txt
+python run_agent.py run `
+  --data agentic-bank-public `
+  --mode public `
+  --output submission.json `
+  --team "НАЗВАНИЕ_КОМАНДЫ" `
+  --contact-email "EMAIL"
+```
+
+Или готовым PowerShell-скриптом:
+
+```powershell
+.\run_public.ps1 -Team "НАЗВАНИЕ_КОМАНДЫ" -ContactEmail "EMAIL"
+```
+
+Проверка:
+
+```powershell
+python run_agent.py validate `
+  --data agentic-bank-public `
+  --submission submission.json
+
+python run_agent.py score `
+  --submission submission.json `
+  --ground-truth agentic-bank-public\ground_truth.json `
+  --details
+```
+
+Ожидаемый итог публичного прогона:
+
+```text
+score      = 1.0
+points     = 36.0
+max_points = 36.0
+```
+
+## Приватный запуск
+
+Приватный набор не совпадёт с SHA-256 публичного набора, поэтому публичный пакет фактов
+автоматически отключается. Агент запускает собственный LLM-планировщик и vision-OCR.
+
+1. Установить Python 3.11+ и зависимости. Агент сам ищет `pdftoppm`, в том числе в локальном runtime Codex.
+2. Задать ключ только в переменной окружения:
+
+```powershell
+$env:OPENAI_API_KEY = "..."
+```
+
+3. Запустить:
+
+```powershell
+.\run_private.ps1 `
+  -DataDirectory ".\agentic-bank-hidden" `
+  -Team "НАЗВАНИЕ_КОМАНДЫ" `
+  -ContactEmail "EMAIL" `
+  -Model "gpt-5.6-terra" `
+  -ReasoningEffort "medium"
+```
+
+Скрипт сначала выполняет `preflight` без расхода токенов, а затем запускает до трёх независимых
+сценарных planner одновременно. Число worker можно уменьшить при строгом rate limit:
+
+```powershell
+.\run_private.ps1 `
+  -DataDirectory "C:\path\to\private-dataset" `
+  -Team "НАЗВАНИЕ_КОМАНДЫ" `
+  -ContactEmail "EMAIL" `
+  -Workers 2
+```
+
+Эквивалентная команда:
+
+```powershell
+python run_agent.py run `
+  --data "C:\path\to\private-dataset" `
+  --output submission.json `
+  --team "НАЗВАНИЕ_КОМАНДЫ" `
+  --contact-email "EMAIL" `
+  --mode llm `
+  --model gpt-5.6-terra `
+  --reasoning-effort medium
+```
+
+По умолчанию приватный режим делает второй проверочный проход. Флаг `--single-pass` экономит
+время и токены, но для финальной попытки не рекомендуется.
+
+### Контроль стоимости и восстановление
+
+- `gpt-5.6-terra` выбран как баланс качества и стоимости; модель можно переопределить параметром.
+- `medium` — безопасный стартовый reasoning effort; повышать его стоит только после сравнения на
+  собственных eval-сценариях.
+- `OPENAI_MAX_OUTPUT_TOKENS` ограничивает один ответ (по умолчанию `20000`, минимум `1024`).
+- `artifacts/planning_progress.json` показывает готовые и ожидающие сценарии и usage текущего процесса.
+- `artifacts/planning_checkpoints/<fingerprint>/` содержит только проверенные семантические планы.
+  Fingerprint включает датасет, документы, модель, reasoning, review и версию контракта.
+- После quota/rate-limit/validation ошибки достаточно повторить ту же команду: совместимые сценарии
+  будут переиспользованы. `--no-resume` принудительно игнорирует checkpoints.
+
+Настройки модели основаны на [официальной документации OpenAI для GPT-5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra)
+и [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+Ключ API не выводится и не сохраняется. Для `pdftoppm` можно явно задать путь:
+
+```powershell
+$env:PDFTOPPM = "C:\path\to\pdftoppm.exe"
+```
+
+API-запросы отправляются с `store: false`. Актуальные доступные модели следует сверять с
+[официальным каталогом OpenAI](https://developers.openai.com/api/docs/models).
+
+## Что отправлять на платформу
+
+По форме задания оцениваемые артефакты — это два независимых пункта:
+
+1. ссылка на GitHub с кодом агента, README и тестами;
+2. созданный агентом `submission.json`, загруженный в одну из трёх попыток.
+
+Command Center полезен как демонстрация на защите и как локальный операторский интерфейс, но
+не заменяет JSON. Если до дедлайна мало времени, приоритет всегда такой: валидный private
+`submission.json` → GitHub → demo URL. В GitHub нельзя добавлять `agentic-bank-hidden/`, ключи,
+кэши OCR и артефакты приватного запуска — они исключены через `.gitignore`.
+
+## Режимы
+
+| Режим | Поведение |
+|---|---|
+| `auto` | Публичный fact pack используется только при точном совпадении SHA-256; иначе запускается LLM. |
+| `public` | Требует точного совпадения публичного набора и останавливается при несовпадении. |
+| `llm` | Всегда выполняет семантическое планирование и vision-OCR. |
+
+`ground_truth.json` используется исключительно командой `score`. Рабочая команда `run` его
+не открывает.
+
+## Результаты и артефакты
+
+После запуска появляются:
+
+```text
+submission.json
+artifacts/
+  preflight_report.json
+  run_report.json
+  quality_report.json
+  document_manifest.json
+  semantic_plans.json
+  plan_review.json          # private LLM-режим
+  planning_progress.json    # live/resume состояние private-планирования
+  planning_checkpoints/     # атомарные сценарные checkpoints, привязанные fingerprint
+  decision_trace.json
+  document_text_cache/
+  vision_ocr_cache/       # только после LLM/OCR
+```
+
+- `submission.json` — файл для загрузки на сайт;
+- `run_report.json` — статистика запуска и предупреждения о незаполненных метаданных;
+- `preflight_report.json` — hard gates датасета, API/OCR runtime и fingerprint isolation до запуска;
+- `quality_report.json` — схема, источники, Decimal, evidence counterfactual, boundary risk и SHA-256;
+- `document_manifest.json` — тип, SHA-256, версия и качество текста каждого PDF;
+- `semantic_plans.json` — формулы, факты, документированные исключения и источники до вычисления;
+- `plan_review.json` — confirmed/corrected/fallback статус независимого второго LLM-прохода;
+- `planning_progress.json` — какие сценарии готовы, переиспользованы или ожидают запуска;
+- `decision_trace.json` — полный технический аудит 36 решений;
+- кэши ускоряют повторный запуск и не являются ответами.
+
+## Почему evidence выбирается отдельно
+
+Агент сначала получает verdict на полной точности. Затем по очереди исключает только
+допустимых кандидатов `evidence_candidates` и повторяет расчёт. Транзакция указывается как
+улика, только если контрфактическое исключение меняет verdict. Поэтому крупнейшая операция
+не становится evidence автоматически.
+
+## Защита от главных ошибок
+
+- Публичный fact pack привязан к двум SHA-256 и не может случайно примениться к приватным данным.
+- В выражениях запрещены импорт, доступ к файлам и произвольные Python-вызовы.
+- Пустая сумма разрешена только при наличии факта из авторитетного документа.
+- Черновики и недействующие редакции понижаются в authority ranking.
+- Перед записью проверяются все сценарии, все ковенанты и точные имена полей.
+- Evidence обязан существовать в реестре.
+- Итоговый JSON создаёт агент; вручную формировать приватные ответы не требуется.
+- `readiness_score` — внутренний операционный QA-индикатор, а не официальный балл соревнования.
+
+## Тесты
+
+```powershell
+python -m unittest discover -s tests -v
+python -m compileall -q halyk_agent tests run_agent.py score_public.py validate_submission.py dashboard_server.py
+```
+
+GitHub Actions выполняет unit/contract tests и compile check на Python 3.11/3.12 под Windows и
+Linux. Полные датасеты не входят в репозиторий. Зависящие от них benchmark-тесты
+помечаются `skipped` без локальных данных; тест опубликованного примера работает
+в чистом клоне. Для полного benchmark дополнительно нужен локальный fact pack.
+
+## Структура проекта
+
+```text
+halyk_agent/
+  cli.py           команды run / validate / score
+  documents.py     PDF-индекс и authority ranking
+  llm.py           Responses API, vision-OCR и semantic planner
+  engine.py        Decimal-расчёты и counterfactual evidence
+  expressions.py   безопасный арифметический DSL
+  validation.py    проверка submission.json
+  scoring.py       публичный локальный scoring
+  config/
+    public_fact_pack.json
+tests/
+run_agent.py
+run_public.ps1
+run_private.ps1
+```
+
+## Важное правило соревнования
+
+Codex и другие готовые агенты допустимы для разработки решения, но приватные ответы должен
+создавать собственный агент. Поэтому в боевом прогоне нельзя вручную переписывать verdict,
+actual или evidence после запуска. Допустим технический контроль процесса, повторный запуск
+после исправления кода и проверка валидатора.
+
+## Границы опубликованных данных
+
+Полные наборы `agentic-bank-public/` и `agentic-bank-hidden/`, ответы, отчёты,
+OCR-кэши, `tmp/` и полный calibration fact pack удалены из всех веток и истории
+этой копии. Локальная резервная копия исходного архива сохранена отдельно.
+В Git оставлен только [один демонстрационный пример](examples/covenant-sample/README.md).
+
+`docs/migration/` описывает первоначальный перенос до очистки и не является
+манифестом текущего дерева. [Запись об очистке](docs/REPOSITORY_HYGIENE.md)
+объясняет границы изменений и работу со старыми клонами.
+
+## Команда и происхождение репозитория
+
+**QwertyS** — совместная разработка Шахназара Ахмера и Нурхана Аймукатова.
+
+| Участник | GitHub | Роли |
+|---|---|---|
+| Шахназар Ахмер / Shakhnazar Akhmer | [Eye172](https://github.com/Eye172) | Full-stack Engineer · Software Engineer · AI Engineer · ML Engineer |
+| Нурхан Аймукатов / Nurkhan Aimukatov | [pip00sya](https://github.com/pip00sya) | Full-stack Engineer · Software Engineer · AI Engineer |
+
+Исходный репозиторий:
+[pip00sya/Halyk-ai-agent](https://github.com/pip00sya/Halyk-ai-agent). Копия с полной историей и
+материалами: [Eye172/halyk-hackathon-1](https://github.com/Eye172/halyk-hackathon-1).
+
+## Migration record
+
+This copy republishes the complete imported Git history under the Eye172 account,
+at Shakhnazar Akhmer's request. After the 2026-10-12 cleanup, commit dates, messages, authors and parent
+relationships remain preserved. Removed file paths and resulting commit IDs differ;
+see [the cleanup record](docs/REPOSITORY_HYGIENE.md). Original authorship metadata, source references and
+the original-to-republished commit mapping are in
+[docs/migration/history.json](docs/migration/history.json).
+Source repositories and their existing development history remain preserved.
+API credentials and machine environment files are supplied separately at runtime.

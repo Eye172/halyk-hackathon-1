@@ -1,0 +1,5 @@
+txn_id,date,account_id,counterparty,description,amount,currency
+TXN-P1-0014,2025-03-05,ACC-7801,Aktau Terminal Properties LLP,Terminal land lease payments 2025,-918443.27,USD
+TXN-P1-0010,2025-05-21,ACC-7801,Ural Crane Works LLP,Purchase of quayside crane equipment,-1842006.44,USD
+TXN-P1-0042,2025-06-17,ACC-7801,Mangystau Berth Services LLP,Berth servicing and operating costs 2025,-3104882.61,USD
+TXN-P1-0045,2025-08-12,ACC-7801,Kaspi Marine Engineering LLP,Quay wall inspection and survey servicing contract,-612884.19,USD

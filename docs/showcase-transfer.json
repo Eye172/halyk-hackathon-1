@@ -1,0 +1,74 @@
+{
+  "from": "Eye172/halyk-covenant-agent-showcase",
+  "source_commit": "35c9a28641d7ce75aec15996c6942239360f460e",
+  "files": [
+    {
+      "path": ".gitattributes",
+      "sha256": "a06684913998b2240883549171e7ed6fec31bb115d9396837b4d30e9d6deae31"
+    },
+    {
+      "path": "README.md",
+      "sha256": "96cd79365a1690eca326a6499482798cf6fe24c7a0c1131e10b8ba57b06dde85"
+    },
+    {
+      "path": "docs/HACKATHON.md",
+      "sha256": "389a07806c156c85dc9c8cac31192ce67c88423aad57231e05afd3333473b6f6"
+    },
+    {
+      "path": "docs/MEDIA.md",
+      "sha256": "19b9a51da5591aca6710db7ff13d9fe55b8c1a255503598616042b16f56b1ac9"
+    },
+    {
+      "path": "docs/media-manifest.json",
+      "sha256": "5af81cae3bc80e522017eaa4a0b94181786887a97667797452e903d8c3bb861f"
+    },
+    {
+      "path": "docs/official-result.json",
+      "sha256": "5e3562de04ee1202817a3ffa212047e6f19ef499f980d9e4908a2a57bd246f54"
+    },
+    {
+      "path": "examples/covenant-sample/README.md",
+      "sha256": "881d88d2f4494b8417372c4b7e98f380c80e8be6f7860f08d9c95c5358f974a0"
+    },
+    {
+      "path": "examples/covenant-sample/documents/896b7933db48.pdf",
+      "sha256": "c7c0b0e4f74a8fb185a9e48eb8159b1bc110322ba265a5201f1e684260ce2629"
+    },
+    {
+      "path": "examples/covenant-sample/documents/8d878af064f2.pdf",
+      "sha256": "2f4313a7f7258f69ae8b038190b92fdd2bda0d340e5dc5842d5a8676fb1b53ee"
+    },
+    {
+      "path": "examples/covenant-sample/expected_answer.json",
+      "sha256": "0fad8ae868c7aa29da80687a257a8ae412a9b771315a661b1945685bbf77898f"
+    },
+    {
+      "path": "examples/covenant-sample/fact_pack.json",
+      "sha256": "fb95ed61deece3567ff55864c16ca6d42aa3516f527dead2f31fbe2a5f78e061"
+    },
+    {
+      "path": "examples/covenant-sample/master_ledger_2025.csv",
+      "sha256": "104c29d15d5684c276de8efb1876aff735b94396454d179197b555b9035550df"
+    },
+    {
+      "path": "examples/covenant-sample/provenance.json",
+      "sha256": "0821a17ba8025154b0e4e5bf729370b34f6002bedc0c1191a30d8ea16888000e"
+    },
+    {
+      "path": "examples/covenant-sample/submission_template.json",
+      "sha256": "4d37ba15440c874af81a17a6b6ec309e6bae3ebf149c45d3a53f682a2cf3da3b"
+    },
+    {
+      "path": "halyk-architecture.png",
+      "sha256": "65292ee3fdcf23f44aebb2fecf0b51632cb3e33ebf0a0ee488e45a08cbf31fc4"
+    },
+    {
+      "path": "halyk-configuration.png",
+      "sha256": "60978c2db0908d2dde13f40494ae6bd33dff2ed8468eacbfda5bf4e6a0d916d9"
+    },
+    {
+      "path": "halyk-overview.png",
+      "sha256": "d2ffb216714e46e9573b2100db1f08a3cdda276f483f1885428072cf77fc2327"
+    }
+  ]
+}

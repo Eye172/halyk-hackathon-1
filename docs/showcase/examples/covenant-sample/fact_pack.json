@@ -1,0 +1,45 @@
+{
+  "dataset_fingerprint": {
+    "master_ledger_2025.csv": "104c29d15d5684c276de8efb1876aff735b94396454d179197b555b9035550df",
+    "submission_template.json": "4d37ba15440c874af81a17a6b6ec309e6bae3ebf149c45d3a53f682a2cf3da3b"
+  },
+  "scenarios": {
+    "P1": {
+      "covenants": [
+        {
+          "clause": "6.1",
+          "title": "Maximum Capital Intensity Ratio",
+          "operator": "<=",
+          "threshold": "0.42",
+          "expression": "capex / (opex + rent)",
+          "facts": {
+            "capex": {
+              "type": "txn",
+              "ids": [
+                "TXN-P1-0010"
+              ]
+            },
+            "opex": {
+              "type": "txn",
+              "ids": [
+                "TXN-P1-0042"
+              ]
+            },
+            "rent": {
+              "type": "txn",
+              "ids": [
+                "TXN-P1-0014"
+              ]
+            }
+          },
+          "evidence_candidates": [],
+          "source_documents": [
+            "8d878af064f2.pdf",
+            "896b7933db48.pdf"
+          ],
+          "rationale": "CapEx divided by borrower operating costs plus terminal land lease. Auditor excludes TXN-P1-0045 from 2025."
+        }
+      ]
+    }
+  }
+}

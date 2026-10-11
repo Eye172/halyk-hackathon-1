@@ -1,0 +1,11 @@
+*.md text eol=lf
+*.json text eol=lf
+*.svg text eol=lf
+*.png binary
+*.jpg binary
+*.webp binary
+*.mp4 binary
+*.pdf binary
+
+# Keep sample fingerprints stable on Windows and Linux.
+examples/covenant-sample/*.csv text eol=lf
