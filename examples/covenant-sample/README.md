@@ -44,7 +44,7 @@ python -m pip install -r requirements.txt
 python tools/run_sample.py
 ```
 
-The source repository may require access. All sample inputs remain readable here.
+The source repository and all sample inputs are publicly available.
 The script reads both PDFs, checks the sample fingerprint and source references,
 executes the existing Decimal calculation engine, validates the output and compares
 it with this single reference answer. It makes **no API calls** and requires no key.
