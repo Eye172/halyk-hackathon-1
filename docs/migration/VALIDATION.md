@@ -27,3 +27,10 @@ All 24 existing unit and contract tests passed in the original project and the m
 
 The migration uses the existing collaborator access. Repository visibility and
 settings are unchanged. Original repository snapshots are retained locally.
+
+## Python 3.11 compatibility
+
+The first GitHub CI run passed on Python 3.12 and exposed a pre-existing f-string
+syntax restriction on Python 3.11. The separator join was moved to a local variable
+before formatting the prompt. Prompt contents and agent logic remain unchanged;
+all 24 existing tests passed after this correction.

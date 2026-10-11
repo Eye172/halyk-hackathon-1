@@ -156,12 +156,13 @@
     },
     {
       "path": "halyk_agent/llm.py",
-      "sha256": "2578fef3bfaccf0566e4f21915b38c6ed3ccc4bd60c3dcde6160013ec73d6bd0",
+      "sha256": "e61bd83c862a52a57a6d2953693f77de5b8aa3c6edc77ee9e2956cfa6abd9d08",
       "bytes": 29998,
       "source": "C:\\Users\\Nurkhan\\Desktop\\halyk-hackathon\\halyk_agent\\llm.py",
       "source_sha256": "2578fef3bfaccf0566e4f21915b38c6ed3ccc4bd60c3dcde6160013ec73d6bd0",
-      "git_blob_sha": "c66117161943c78235f295d316138a4797a7abf0",
-      "newline_normalized": false
+      "git_blob_sha": "e69a0cfbf45b2c0531e65879bbc2b3813e9446a4",
+      "newline_normalized": false,
+      "migration_adjustment": "Extracted the document separator join from the f-string expression for Python 3.11 compatibility; prompt text and agent behavior are unchanged."
     },
     {
       "path": "halyk_agent/models.py",

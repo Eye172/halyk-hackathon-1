@@ -517,11 +517,12 @@ class LLMPlanner:
             }
             for txn in ledger_context
         ]
+        document_context = '\n\n=====\n\n'.join(documents)
         evidence_package = f"""
 EVIDENCE PACKAGE FOR SCENARIO {scenario_id}
 
 DOCUMENTS
-{'\n\n=====\n\n'.join(documents)}
+{document_context}
 
 LEDGER ROWS
 {json.dumps(txns, ensure_ascii=False, separators=(',', ':'))}
