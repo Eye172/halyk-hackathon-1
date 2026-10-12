@@ -8,3 +8,8 @@ submission*.json -text
 
 # Keep sample fingerprints stable on Windows and Linux.
 examples/covenant-sample/*.csv text eol=lf
+
+*.mp4 binary
+*.jpg binary
+*.pdf binary
+*.pptx binary
